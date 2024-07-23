@@ -8,6 +8,7 @@ from logging.handlers import TimedRotatingFileHandler
 import torch
 from typing import List
 import numpy as np
+import os
 
 dataset_classes_list = {
     'sst2': ['positive', 'negative'],
@@ -18,7 +19,6 @@ dataset_classes_list = {
     'trec': ['Description', 'Entity', 'Expression', 'Human', 'Location', 'Number'],
     'sst-5': ['terrible', 'bad', 'okay', 'good', 'great'],
 }
-
 
 def read_yaml_file(file_path):
     with open(file_path, 'r') as file:
@@ -35,14 +35,11 @@ def first_appear_pred(text, verbalizer_dict, logger):
     for word in text.split():
         if word in verbalizer_dict:
             return word
-    # logger.info("cannot decode {}".format(text))
     return ""
-
 
 def count_lines(file_path):
     with open(file_path, 'r') as f:
         return sum(1 for _ in f)
-
 
 def read_lines(file_, sample_indices=None):
     ret = []
@@ -58,22 +55,12 @@ def read_lines(file_, sample_indices=None):
             lines = f.readlines()
         return [line.rstrip() for line in lines]
 
-
 def json2list(file):
     with open(file, 'r') as f:
         lines = json.load(f)
     return lines
 
-
-def format_template(
-    src,
-    tgt="",
-    template="",
-    src_name="",
-    tgt_name="",
-    line_break='\n',
-):
-
+def format_template(src, tgt="", template="", src_name="", tgt_name="", line_break='\n'):
     template_ = template
     if isinstance(tgt, list):
         tgt = tgt[0]
@@ -92,21 +79,20 @@ def get_final_prompt(text):
             text = text[1:-1]
         return text
 
-
-def load_cls_data(verbalizers=None, data_path=None,  sample_indices=None):
-    test_data = read_lines(
-        data_path, sample_indices=sample_indices)
+def load_cls_data(verbalizers=None, data_path=None, sample_indices=None):
+    if not os.path.exists(data_path):
+        raise FileNotFoundError(f"File not found: {data_path}")
+    test_data = read_lines(data_path, sample_indices=sample_indices)
     test_src = []
     test_tgt = []
     for i, line in enumerate(test_data):
         try:
             cur_src, cur_tgt = line.split('\t')
-        except:
-            raise ValueError
+        except ValueError:
+            raise ValueError(f"Line {i+1} in file {data_path} is not in the expected format.")
         test_src.append(cur_src)
         test_tgt.append(verbalizers[int(cur_tgt)])
     return test_src, test_tgt
-
 
 def load_sum_data_(src_file, tgt_file, sample_indices=None):
     src = read_lines(src_file, sample_indices=sample_indices)
@@ -118,8 +104,8 @@ def load_sum_data(dataset, seed, sample_num):
     if dataset == 'sam':
         dev_file = './data/sum/sam/valid'
         test_file = './data/sum/sam/test'
-        dev_src, dev_tgt = load_sum_data_(f'{dev_file}.src',f'{dev_file}.tgt')
-        test_src, test_tgt = load_sum_data_(f'{test_file}.src',f'{test_file}.tgt')
+        dev_src, dev_tgt = load_sum_data_(f'{dev_file}.src', f'{dev_file}.tgt')
+        test_src, test_tgt = load_sum_data_(f'{test_file}.src', f'{test_file}.tgt')
         sample_indices = random.sample(range(len(dev_src)), sample_num)
     dev_src = [dev_src[i] for i in sample_indices]
     print(sample_indices)
@@ -135,19 +121,15 @@ def load_sim_data_(src_file, tgt_files, sample_indices=None):
     print(len(tgt))
     return src, tgt
 
-
 def load_sim_data(dataset, seed):
     random.seed(seed)
     if dataset == 'asset':
         dev_src_file = './data/sim/asset/dev/asset.valid.src'
-        dev_tgt_files = [
-            f'./data/sim/asset/dev/asset.valid.simp.{i}' for i in range(10)]
+        dev_tgt_files = [f'./data/sim/asset/dev/asset.valid.simp.{i}' for i in range(10)]
         test_src_file = './data/sim/asset/test/asset.test.src'
-        test_tgt_files = [
-            f'./data/sim/asset/test/asset.test.simp.{i}' for i in range(10)]
+        test_tgt_files = [f'./data/sim/asset/test/asset.test.simp.{i}' for i in range(10)]
     else:
         raise ValueError("dataset not supported")
-
     dev_src, dev_tgt = load_sim_data_(dev_src_file, dev_tgt_files)
     test_src, test_tgt = load_sim_data_(test_src_file, test_tgt_files)
     sample_indices = random.sample(range(len(dev_src)), 100)
@@ -168,7 +150,6 @@ def extract_n_samples_per_class(src, tgt, n, dataset):
         cur_src = [src[i] for i, value in enumerate(tgt) if value == label]
         cur_tgt = [tgt[i] for i, value in enumerate(tgt) if value == label]
         rand_indices = random.sample(range(len(cur_src)), n)
-        # print(rand_indices)
         src_new += [cur_src[i] for i in rand_indices]
         tgt_new += [cur_tgt[i] for i in rand_indices]
     tgt_new = [e[1:] for e in tgt_new] if dataset != 'agnews' else tgt_new
@@ -190,7 +171,6 @@ def setup_log(log_path, log_name="basic"):
     print("Setting up log for", log_name)
     logger = logging.getLogger(log_name)
     if not logger.handlers:
-        # log_path = os.path.join("logs", log_name)
         logger.setLevel(logging.DEBUG)
         file_handler = TimedRotatingFileHandler(
             filename=log_path, when="MIDNIGHT", interval=1, backupCount=30
@@ -198,23 +178,18 @@ def setup_log(log_path, log_name="basic"):
         file_handler.suffix = "%Y-%m-%d.log"
         file_handler.extMatch = re.compile(r"^\d{4}-\d{2}-\d{2}.log$")
         stream_handler = logging.StreamHandler()
-        # formatter = logging.Formatter("[%(asctime)s] [%(process)d] [%(levelname)s] - %(module)s.%(funcName)s (%(filename)s:%(lineno)d) - %(message)s")
         formatter = logging.Formatter("[%(asctime)s] - %(message)s")
-
         stream_handler.setFormatter(formatter)
         file_handler.setFormatter(formatter)
         logger.addHandler(stream_handler)
         logger.addHandler(file_handler)
     return logger
 
-
-
 def get_dataset_verbalizers(dataset: str) -> List[str]:
     if dataset in ["sst2", "yelp-2", "mr", "cr"]:
-        verbalizers = ["\u0120negative", "\u0120positive"]  # num_classes
-        # verbalizers = ['\u0120terrible', '\u0120great']  # num_classes
+        verbalizers = ["\u0120negative", "\u0120positive"] 
     elif dataset == "agnews":
-        verbalizers = ["World", "Sports", "Business", "Tech"]  # num_classes
+        verbalizers = ["World", "Sports", "Business", "Tech"] 
     elif dataset in ["sst-5", "yelp-5"]:
         verbalizers = [
             "\u0120terrible",
@@ -222,7 +197,7 @@ def get_dataset_verbalizers(dataset: str) -> List[str]:
             "\u0120okay",
             "\u0120good",
             "\u0120great",
-        ]  # num_classes
+        ] 
     elif dataset == "subj":
         verbalizers = ["\u0120subjective", "\u0120objective"]
     elif dataset == "trec":
@@ -235,7 +210,6 @@ def get_dataset_verbalizers(dataset: str) -> List[str]:
             "\u0120Number",
         ]
     return verbalizers
-
 
 def k_init_pop(initial_mode, init_population, k):
     if initial_mode == "topk":
@@ -258,7 +232,6 @@ def cal_mean_std(results):
     mean = np.mean(results)
     std = np.std(results)
     return round(mean, 2), round(std, 2)
-
 
 if __name__ == '__main__':
     dev_src, dev_tgt, test_src, test_tgt = load_sum_data('sam', 5, 100)
